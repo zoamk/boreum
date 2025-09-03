@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>배그 스쿼드 짜기 게임</title>
+    <style>
+        body {
+            background: #181a1b;
+            color: #f1f1f1;
+            font-family: 'Segoe UI', 'Pretendard', Arial, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+        }
+        .container {
+            background: #23272a;
+            border-radius: 18px;
+            box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+            padding: 36px 32px 32px 32px;
+            margin-top: 48px;
+            min-width: 350px;
+            max-width: 420px;
+        }
+        h2 {
+            text-align: center;
+            margin-bottom: 28px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #00e1ff;
+        }
+        label {
+            display: block;
+            margin-bottom: 18px;
+            font-size: 1.08em;
+        }
+        input[type="text"], select {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: none;
+            background: #181a1b;
+            color: #f1f1f1;
+            font-size: 1em;
+            margin-top: 6px;
+            margin-bottom: 2px;
+            box-sizing: border-box;
+            outline: none;
+            transition: background 0.2s;
+        }
+        input[type="text"]:focus, select:focus {
+            background: #222426;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(90deg, #00e1ff 0%, #0077ff 100%);
+            color: #181a1b;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background 0.2s, color 0.2s;
+        }
+        button:hover {
+            background: linear-gradient(90deg, #0077ff 0%, #00e1ff 100%);
+            color: #fff;
+        }
+        .result {
+            margin-top: 28px;
+            background: #181a1b;
+            border-radius: 12px;
+            padding: 20px 18px;
+            color: #f1f1f1;
+            font-size: 1.08em;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+            word-break: keep-all;
+        }
+        .result b {
+            color: #00e1ff;
+        }
+        @media (max-width: 500px) {
+            .container { min-width: unset; max-width: 98vw; padding: 18px 6vw 18px 6vw; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>배그 인원분배</h2>
+        <label>인원수:
+            <input type="text" id="count" placeholder="예: 8">
+        </label>
+        <label>모드 선택:
+            <select id="mode">
+                <option value="duo">듀오</option>
+                <option value="trio">트리오</option>
+                <option value="squad">스쿼드</option>
+            </select>
+        </label>
+        <label>이름(쉼표로 구분, 가중치는 이름 뒤에 괄호로 예: 철수(1),영희(3)):
+            <input type="text" id="names" placeholder="예: 철수(1),영희(3),민수,지민(2),..." autocomplete="off">
+        </label>
+        <button onclick="distribute()">분배하기</button>
+        <div class="result" id="result"></div>
+    </div>
+    <script>
+        function parseNameAndWeight(str) {
+            // 이름(가중치) 또는 이름
+            const match = str.match(/^(.+?)(?:\((\d+)\))?$/);
+            if (!match) return null;
+            const name = match[1].trim();
+            let weight = match[2] ? parseInt(match[2], 10) : 3; // 기본값 3
+            if (isNaN(weight)) weight = 3;
+            return { name, weight };
+        }
+
+        // 팀 평균 가중치 차이가 최소가 되도록 여러 번 시도해서 가장 좋은 분배를 찾음
+        function smartShuffle(players, teamCount, groupSize, tryCount = 1000) {
+            let bestTeams = null;
+            let bestDiff = Infinity;
+
+            for (let t = 0; t < tryCount; t++) {
+                // 랜덤 섞기
+                let shuffled = players.slice().sort(() => Math.random() - 0.5);
+                let teams = Array.from({length: teamCount}, () => []);
+                let teamWeights = Array.from({length: teamCount}, () => 0);
+
+                // round-robin 분배
+                for (let i = 0; i < teamCount * groupSize; i++) {
+                    let teamIdx = i % teamCount;
+                    teams[teamIdx].push(shuffled[i]);
+                    teamWeights[teamIdx] += shuffled[i].weight;
+                }
+
+                // 평균 가중치 차이 계산
+                let avgs = teamWeights.map((w, idx) => w / teams[idx].length);
+                let maxAvg = Math.max(...avgs);
+                let minAvg = Math.min(...avgs);
+                let diff = maxAvg - minAvg;
+
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    bestTeams = {teams: teams.map(arr => arr.slice()), avgs: avgs.slice()};
+                    if (bestDiff === 0) break; // 완벽하게 같으면 바로 종료
+                }
+            }
+            return bestTeams;
+        }
+
+        function distribute() {
+            const count = parseInt(document.getElementById('count').value.trim(), 10);
+            const mode = document.getElementById('mode').value;
+            let namesRaw = document.getElementById('names').value.split(',').map(n => n.trim()).filter(n => n);
+
+            if (isNaN(count) || count < 2) {
+                alert('인원수를 올바르게 입력해주세요.');
+                return;
+            }
+            if (namesRaw.length !== count) {
+                alert('입력한 인원수와 이름의 수가 일치해야 합니다.');
+                return;
+            }
+
+            // 이름과 가중치 파싱
+            let players = [];
+            for (let n of namesRaw) {
+                const parsed = parseNameAndWeight(n);
+                if (!parsed) {
+                    alert('이름 입력 형식이 올바르지 않습니다.');
+                    return;
+                }
+                if (parsed.weight < 1 || parsed.weight > 5) {
+                    alert('가중치는 1~5까지만 입력 가능합니다. (' + parsed.name + ')');
+                    return;
+                }
+                players.push(parsed);
+            }
+
+            // 선택한 모드에 따라 팀 크기 결정
+            const groupSize = mode === 'duo' ? 2 : mode === 'trio' ? 3 : 4;
+            const modeName = mode === 'duo' ? '듀오' : mode === 'trio' ? '트리오' : '스쿼드';
+
+            const teamCount = Math.floor(players.length / groupSize);
+            const remainCount = players.length % groupSize;
+
+            if (teamCount === 0) {
+                document.getElementById('result').innerHTML = `<b>팀을 만들 수 없습니다.</b>`;
+                return;
+            }
+
+            // 남은 인원 처리
+            let shuffledPlayers = players.slice().sort(() => Math.random() - 0.5);
+            let remain = [];
+            if (remainCount > 0) {
+                remain = shuffledPlayers.slice(-remainCount);
+                shuffledPlayers = shuffledPlayers.slice(0, shuffledPlayers.length - remainCount);
+            }
+
+            // 팀 분배 (가중치 평균 최소화)
+            let best = smartShuffle(shuffledPlayers, teamCount, groupSize, 500);
+            let resultHtml = `<b>${modeName} (${groupSize}인 1팀)</b><br>`;
+            for (let i = 0; i < best.teams.length; i++) {
+                const teamNames = best.teams[i].map(p => `${p.name}(${p.weight})`).join(', ');
+                const avg = best.avgs[i].toFixed(2);
+                resultHtml += `팀 ${i + 1}: ${teamNames} <span style="color:#aaa;font-size:0.95em;">(평균: ${avg})</span><br>`;
+            }
+            if (remain.length > 0) {
+                resultHtml += `<b>남은 인원:</b> ${remain.map(p => `${p.name}(${p.weight})`).join(', ')}<br>`;
+            }
+
+            document.getElementById('result').innerHTML = resultHtml;
+        }
+    </script>
+</body>
+</html>
